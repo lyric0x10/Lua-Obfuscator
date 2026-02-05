@@ -1,18 +1,13 @@
 const Utils = require("./Utils/Utils.js");
 
-/**
- * Finds all nodes matching a specific key-value pair.
- * Returns the path to the OBJECT node, not the key's path.
- */
 function FindAllInstances(Dict, Key, Target) {
     function SearchNode(Tree, SearchKey, TargetValue, CurrentPath = []) {
         let Blocks = [];
 
         if (Tree !== null && typeof Tree === 'object') {
             if (!Array.isArray(Tree)) {
-                // Check if this object is the target node
                 if (Object.prototype.hasOwnProperty.call(Tree, SearchKey) && Tree[SearchKey] === TargetValue) {
-                    Blocks.push([...CurrentPath]); // Return path to the object
+                    Blocks.push([...CurrentPath]);
                 }
 
                 for (const K in Tree) {
@@ -33,8 +28,7 @@ function FindAllInstances(Dict, Key, Target) {
     return SearchNode(Dict, Key, Target);
 }
 
-const GenVar = Utils.GenerateVariable
-
+const GenVar = Utils.GenerateVariable;
 
 function GetNodeInternal(Obj, Path) {
     let CurrentValue = Obj;
@@ -45,15 +39,14 @@ function GetNodeInternal(Obj, Path) {
     return CurrentValue;
 }
 
-function CollectVariables(AST) {
-    const result = {
+function CollectVariables(Ast) {
+    const Result = {
         Defined: [],
-        ExternalAPIs: []
+        ExternalApis: []
     };
 
-    const definedNames = new Set();
-    // Types that introduce new variable names in Luaparser
-    const declarationTypes = [
+    const DefinedNames = new Set();
+    const DeclarationTypes = [
         "LocalStatement",
         "AssignmentStatement",
         "FunctionDeclaration",
@@ -61,79 +54,69 @@ function CollectVariables(AST) {
         "ForGenericStatement"
     ];
 
-    declarationTypes.forEach(type => {
-        const paths = FindAllInstances(AST, "type", type);
-        paths.forEach(path => {
-            const node = GetNodeInternal(AST, path);
-            if (!node) return;
+    DeclarationTypes.forEach(Type => {
+        const Paths = FindAllInstances(Ast, "type", Type);
+        Paths.forEach(Path => {
+            const Node = GetNodeInternal(Ast, Path);
+            if (!Node) return;
 
-            // Handle standard variable lists (LocalStatement, AssignmentStatement, ForGenericStatement)
-            if (Array.isArray(node.variables)) {
-                node.variables.forEach(v => {
-                    if (v && v.type === "Identifier") definedNames.add(v.name);
+            if (Array.isArray(Node.variables)) {
+                Node.variables.forEach(V => {
+                    if (V && V.type === "Identifier") DefinedNames.add(V.name);
                 });
             }
 
-            // Handle Function names and parameters
-            if (type === "FunctionDeclaration") {
-                if (node.identifier) {
-                    definedNames.add(node.identifier.name);
+            if (Type === "FunctionDeclaration") {
+                if (Node.identifier) {
+                    DefinedNames.add(Node.identifier.name);
                 }
-                if (Array.isArray(node.parameters)) {
-                    node.parameters.forEach(p => {
-                        if (p && p.type === "Identifier") definedNames.add(p.name);
+                if (Array.isArray(Node.parameters)) {
+                    Node.parameters.forEach(P => {
+                        if (P && P.type === "Identifier") DefinedNames.add(P.name);
                     });
                 }
             }
 
-            // Handle ForNumericStatement (uses singular 'variable' property)
-            if (type === "ForNumericStatement" && node.variable) {
-                if (node.variable.type === "Identifier") definedNames.add(node.variable.name);
+            if (Type === "ForNumericStatement" && Node.variable) {
+                if (Node.variable.type === "Identifier") DefinedNames.add(Node.variable.name);
             }
         });
     });
 
-    // Locate every Identifier to categorize it
-    const allIdentifierPaths = FindAllInstances(AST, "type", "Identifier");
+    const AllIdentifierPaths = FindAllInstances(Ast, "type", "Identifier");
 
-    allIdentifierPaths.forEach(path => {
-        const node = GetNodeInternal(AST, path);
-        if (!node || !node.name) return;
+    AllIdentifierPaths.forEach(Path => {
+        const Node = GetNodeInternal(Ast, Path);
+        if (!Node || !Node.name) return;
 
-        const parentPath = path.slice(0, -1);
-        const parentField = path[path.length - 1];
-        const parentNode = GetNodeInternal(AST, parentPath);
+        const ParentPath = Path.slice(0, -1);
+        const ParentField = Path[Path.length - 1];
+        const ParentNode = GetNodeInternal(Ast, ParentPath);
 
-        if (!parentNode) return;
+        if (!ParentNode) return;
 
-        // --- FILTERING LOGIC ---
-
-        // Skip identifiers that are property names in math.abs (MemberExpression identifier)
-        if (parentNode.type === "MemberExpression" && parentField === "identifier") {
+        if (ParentNode.type === "MemberExpression" && ParentField === "identifier") {
             return;
         }
 
-        // Skip identifiers that are literal keys in tables { key = value }
-        if (parentNode.type === "TableKeyString" && parentField === "key") {
+        if (ParentNode.type === "TableKeyString" && ParentField === "key") {
             return;
         }
 
-        // Categorize based on definedNames set
-        if (definedNames.has(node.name)) {
-            result.Defined.push([path, node]);
+        if (DefinedNames.has(Node.name)) {
+            Result.Defined.push([Path, Node]);
         } else {
-            result.ExternalAPIs.push([path, node]);
+            Result.ExternalApis.push([Path, Node]);
         }
     });
 
-    return result;
+    return Result;
 }
 
-function RenameVariables(AST) {
+function RenameVariables(Ast) {
     const RenameDict = {};
-    const Analysis = CollectVariables(AST);
+    const Analysis = CollectVariables(Ast);
 
-    // Update nodes directly by reference
     Analysis.Defined.forEach(([Path, Node]) => {
         const OriginalName = Node.name;
         if (!RenameDict[OriginalName]) {
@@ -143,7 +126,7 @@ function RenameVariables(AST) {
         Node.name = RenameDict[OriginalName];
     });
 
-    return AST;
+    return Ast;
 }
 
 module.exports = {
