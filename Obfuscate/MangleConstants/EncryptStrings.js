@@ -1,13 +1,13 @@
 const Utils = require("../Utils/Utils.js");
-const A2C = require("../Utils/AST2Code.js");
-const _Math = require("../Utils/Math.js");
+const Ast2Code = require("../Utils/AST2Code.js");
+const MathUtils = require("../Utils/Math.js");
 
-const FindAllInstances = Utils.FindAllInstances
+const FindAllInstances = Utils.FindAllInstances;
 
-function StringifyMemberExpressions(AST) {
-    const MEs = FindAllInstances(AST, "type", "MemberExpression")
-    for (const Path of MEs) {
-        let ParentNode = AST;
+function StringifyMemberExpressions(Ast) {
+    const MemberExpressions = FindAllInstances(Ast, "type", "MemberExpression");
+    for (const Path of MemberExpressions) {
+        let ParentNode = Ast;
         for (const Key of Path.slice(0, -1)) {
             ParentNode = ParentNode[Key];
         }
@@ -26,24 +26,23 @@ function StringifyMemberExpressions(AST) {
             };
         }
     }
-    return AST
+    return Ast;
 }
 
+function UnescapeLuaString(StringInput) {
+    const Bytes = [];
+    let Index = 0;
 
-function unescapeLuaString(s) {
-    const bytes = [];
-    let i = 0;
-
-    while (i < s.length) {
-        const char = s[i];
-        if (char === '\\') {
-            const next = s[i + 1];
-            if (/\d/.test(next)) {
-                let decimalStr = s.substr(i + 1, 3).match(/^\d+/)[0];
-                bytes.push(parseInt(decimalStr, 10));
-                i += decimalStr.length + 1;
+    while (Index < StringInput.length) {
+        const Char = StringInput[Index];
+        if (Char === '\\') {
+            const NextChar = StringInput[Index + 1];
+            if (/\d/.test(NextChar)) {
+                let DecimalString = StringInput.substr(Index + 1, 3).match(/^\d+/)[0];
+                Bytes.push(parseInt(DecimalString, 10));
+                Index += DecimalString.length + 1;
             } else {
-                const escapes = {
+                const EscapeMap = {
                     'n': 10,
                     'r': 13,
                     't': 9,
@@ -54,76 +53,74 @@ function unescapeLuaString(s) {
                     '"': 34,
                     "'": 39
                 };
-                bytes.push(escapes[next] || next.charCodeAt(0));
-                i += 2;
+                Bytes.push(EscapeMap[NextChar] || NextChar.charCodeAt(0));
+                Index += 2;
             }
         } else {
-            const code = s.codePointAt(i);
-            if (code > 0xFFFF) {
-                const tempBuf = Buffer.from(String.fromCodePoint(code), 'utf8');
-                for (const b of tempBuf) bytes.push(b);
-                i += 2;
+            const CodePoint = StringInput.codePointAt(Index);
+            if (CodePoint > 0xFFFF) {
+                const TempBuffer = Buffer.from(String.fromCodePoint(CodePoint), 'utf8');
+                for (const Byte of TempBuffer) Bytes.push(Byte);
+                Index += 2;
             } else {
-                const tempBuf = Buffer.from(s[i], 'utf8');
-                for (const b of tempBuf) bytes.push(b);
-                i++;
+                const TempBuffer = Buffer.from(StringInput[Index], 'utf8');
+                for (const Byte of TempBuffer) Bytes.push(Byte);
+                Index++;
             }
         }
     }
-    return Buffer.from(bytes);
+    return Buffer.from(Bytes);
 }
 
-const BaseStarEncode = (dataBuffer, alphabet) => {
-    let num = BigInt('0x' + dataBuffer.toString('hex'));
-    if (num === 0n) return alphabet[0];
+const BaseStarEncode = (DataBuffer, Alphabet) => {
+    let LargeNumber = BigInt('0x' + DataBuffer.toString('hex'));
+    if (LargeNumber === 0n) return Alphabet[0];
 
-    const base = BigInt(alphabet.length);
-    let result = '';
+    const BaseValue = BigInt(Alphabet.length);
+    let ResultString = '';
 
-    while (num > 0n) {
-        result = alphabet[Number(num % base)] + result;
-        num /= base;
+    while (LargeNumber > 0n) {
+        ResultString = Alphabet[Number(LargeNumber % BaseValue)] + ResultString;
+        LargeNumber /= BaseValue;
     }
-    return result;
+    return ResultString;
 };
 
+function EncryptStrings(Ast, Percentage = 100) {
+    const PossibleCharacters = "!#$%&()*+,-.:;<=>?@[]^_{}~0123456789ABCDEFGHJKLMNOPQRSTUVWXYZ".split("");
 
+    function Encode(EncryptedBuffer, EncryptionKey) {
+        const AlphabetSize = Math.floor(Math.random() * (PossibleCharacters.length - 16 + 1)) + 16;
+        const RandomizedAlphabet = PossibleCharacters.sort(() => Math.random() - 0.5).slice(0, AlphabetSize);
 
-function EncryptStrings(AST, Percentage = 100) {
-    const PossibleChars = "!#$%&()*+,-.:;<=>?@[]^_{}~0123456789ABCDEFGHJKLMNOPQRSTUVWXYZ".split("");
+        const EncodedString = BaseStarEncode(EncryptedBuffer, RandomizedAlphabet);
 
-    function Encode(EncryptedBuffer, Key) {
-        const Size = Math.floor(Math.random() * (PossibleChars.length - 16 + 1)) + 16;
-        const Alphabet = PossibleChars.sort(() => Math.random() - 0.5).slice(0, Size);
+        let LowercasePool = "abcdefghijklmnopqrstuvwxyz";
+        let DelimiterString = PossibleCharacters.sort(() => Math.random() - 0.5).slice(0, 4).join("") + LowercasePool[MathUtils.Random(0, LowercasePool.length - 1)];
 
-        const Encoded = BaseStarEncode(EncryptedBuffer, Alphabet);
+        let FinalPayload = DelimiterString + RandomizedAlphabet.join("") + DelimiterString + EncodedString;
 
-        let Other = "abcdefghijklmnopqrstuvwxyz";
-        let Delimiter = PossibleChars.sort(() => Math.random() - 0.5).slice(0, 4).join("") + Other[_Math.Random(0, Other.length - 1)];
-
-        let Payload = Delimiter + Alphabet.join("") + Delimiter + Encoded;
-
-        return `${Decryptor}("${Payload}", "${Key}")`;
+        return `${DecryptorVariableName}("${FinalPayload}", "${EncryptionKey}")`;
     }
 
     function EncryptToBuffer(InputBuffer, KeyString) {
         const KeyBuffer = Buffer.from(KeyString, 'binary');
-        const Output = Buffer.alloc(InputBuffer.length);
+        const OutputBuffer = Buffer.alloc(InputBuffer.length);
 
-        for (let i = 0; i < InputBuffer.length; i++) {
-            Output[i] = InputBuffer[i] ^ KeyBuffer[i % KeyBuffer.length];
+        for (let Index = 0; Index < InputBuffer.length; Index++) {
+            OutputBuffer[Index] = InputBuffer[Index] ^ KeyBuffer[Index % KeyBuffer.length];
         }
-        return Output;
+        return OutputBuffer;
     }
 
-    const Decryptor = Utils.GenerateVariable();
+    const DecryptorVariableName = Utils.GenerateVariable();
 
-    let Code = `local ${Decryptor} = function(b, c)
+    let LuaDecryptorCode = `local ${DecryptorVariableName} = function(b, c)
         if not b or b == "" then return "" end
         local d = b:sub(1, 5)
         local e, f = b:find(d, 6, true)
         if not e then return "" end
-        local g = b:sub(6, e - 1) -- Fix: Use 'e' (start of delim) not 'f'
+        local g = b:sub(6, e - 1)
         local h = b:sub(f + 1)
         local i = {}
         for j = 1, #g do i[g:sub(j, j)] = j - 1 end
@@ -150,7 +147,7 @@ function EncryptStrings(AST, Percentage = 100) {
             local q = k[j]
             local r = c:byte((j - 1) % p + 1)
             local s, t = 0, 1
-            for _bit = 1, 8 do -- Fix: Renamed loop var to avoid shadowing 'e'
+            for BitIndex = 1, 8 do
                 if q % 2 ~= r % 2 then s = s + t end
                 q = math.floor(q / 2)
                 r = math.floor(r / 2)
@@ -160,41 +157,40 @@ function EncryptStrings(AST, Percentage = 100) {
         end
         return o
     end\n`;
-    let Strings = FindAllInstances(AST, "type", "StringLiteral")
-    Strings = Utils.GetRandomSample(Strings, Percentage)
 
-    for (const Path of Strings) {
-        let ParentNode = AST;
+    let StringNodes = FindAllInstances(Ast, "type", "StringLiteral");
+    StringNodes = Utils.GetRandomSample(StringNodes, Percentage);
+
+    for (const Path of StringNodes) {
+        let ParentNode = Ast;
         for (const Key of Path.slice(0, -1)) {
             ParentNode = ParentNode[Key];
         }
 
         let RawValue = ParentNode["raw"];
-        let InputBuffer;
+        let StringBuffer;
 
         if (RawValue.startsWith("[") && RawValue.endsWith("]")) {
-            let content = RawValue.replace(/^\[(=*)\[\n?/, "$1").replace(/\](=*)\]$/, "$1");
-            InputBuffer = Buffer.from(content, 'utf8');
+            let Content = RawValue.replace(/^\[(=*)\[\n?/, "$1").replace(/\](=*)\]$/, "$1");
+            StringBuffer = Buffer.from(Content, 'utf8');
         } else {
-            let content = RawValue.slice(1, -1);
-            InputBuffer = unescapeLuaString(content);
+            let Content = RawValue.slice(1, -1);
+            StringBuffer = UnescapeLuaString(Content);
         }
 
-        if (InputBuffer.length > 0) {
-            // A. Encrypt first
-            let Key = (PossibleChars.sort(() => Math.random() - 0.5).slice(0, _Math.Random(5,40))).join("");
-            let EncryptedBuffer = EncryptToBuffer(InputBuffer, Key);
+        if (StringBuffer.length > 0) {
+            let GeneratedKey = (PossibleCharacters.sort(() => Math.random() - 0.5).slice(0, MathUtils.Random(5, 40))).join("");
+            let EncryptedBuffer = EncryptToBuffer(StringBuffer, GeneratedKey);
 
-            // B. Encode the encrypted result
-            ParentNode["raw"] = Encode(EncryptedBuffer, Key);
+            ParentNode["raw"] = Encode(EncryptedBuffer, GeneratedKey);
         }
     }
 
-    const NewCode = A2C.AST2Code(AST);
-    return Utils.Parse(Code + NewCode);
+    const TranspiledCode = Ast2Code.AST2Code(Ast);
+    return Utils.Parse(LuaDecryptorCode + TranspiledCode);
 }
 
 module.exports = {
     StringifyMemberExpressions,
     EncryptStrings
-}
+};
