@@ -1,263 +1,245 @@
-const A2C = require("../Utils/AST2Code.js");
+const AstToCode = require("../Utils/AST2Code.js");
 const Utils = require("../Utils/Utils.js");
 
 class ExpressionDecomposer {
-    constructor(rootAst) {
-        this.root = rootAst;
-        this.output = [];
-        this.tempCounter = 1;
-        this.indent = 0;
+    constructor(RootAst) {
+        this.Root = RootAst;
+        this.Output = [];
+        this.TempCounter = 1;
+        this.Indent = 0;
     }
 
-    generateTemp() {
+    GenerateTemp() {
         return Utils.GenerateVariable();
     }
 
-    emit(line) {
-        if (!line) return;
-        const spacing = "  ".repeat(this.indent);
-        this.output.push(spacing + line.trim());
+    Emit(Line) {
+        if (!Line) return;
+        const Spacing = "  ".repeat(this.Indent);
+        this.Output.push(Spacing + Line.trim());
     }
 
-    decompose(node) {
-        if (!node) return "nil";
+    Decompose(Node) {
+        if (!Node) return "nil";
 
-        if (node.type === "Identifier") return node.name;
-        if (node.type === "VarargLiteral") return "...";
-        if (["NumericLiteral", "StringLiteral", "BooleanLiteral", "NilLiteral"].includes(node.type)) {
-            return A2C.Handle(node).trim();
+        if (Node.type === "Identifier") return Node.name;
+        if (Node.type === "VarargLiteral") return "...";
+        if (["NumericLiteral", "StringLiteral", "BooleanLiteral", "NilLiteral"].includes(Node.type)) {
+            return AstToCode.Handle(Node).trim();
         }
 
-        let value;
-        switch (node.type) {
+        let Value;
+        switch (Node.type) {
             case "BinaryExpression": {
-                const left = this.decompose(node.left);
-                const right = this.decompose(node.right);
-                const result = this.generateTemp();
-                this.emit(`${result} = ${left} ${node.operator} ${right}`);
-                return result;
+                const Left = this.Decompose(Node.left);
+                const Right = this.Decompose(Node.right);
+                const Result = this.GenerateTemp();
+                this.Emit(`${Result} = ${Left} ${Node.operator} ${Right}`);
+                return Result;
             }
             case "LogicalExpression": {
-                const left = this.decompose(node.left);
-                const result = this.generateTemp();
-                if (node.operator === "and") {
-                    this.emit(`${result} = ${left}`);
-                    this.emit(`if ${result} then`);
-                    this.indent++;
-                    const right = this.decompose(node.right);
-                    this.emit(`${result} = ${right}`);
-                    this.indent--;
-                    this.emit("end");
-                } else if (node.operator === "or") {
-                    this.emit(`${result} = ${left}`);
-                    this.emit(`if not ${result} then`);
-                    this.indent++;
-                    const right = this.decompose(node.right);
-                    this.emit(`${result} = ${right}`);
-                    this.indent--;
-                    this.emit("end");
+                const Left = this.Decompose(Node.left);
+                const Result = this.GenerateTemp();
+                if (Node.operator === "and") {
+                    this.Emit(`${Result} = ${Left}`);
+                    this.Emit(`if ${Result} then`);
+                    this.Indent++;
+                    const Right = this.Decompose(Node.right);
+                    this.Emit(`${Result} = ${Right}`);
+                    this.Indent--;
+                    this.Emit("end");
+                } else if (Node.operator === "or") {
+                    this.Emit(`${Result} = ${Left}`);
+                    this.Emit(`if not ${Result} then`);
+                    this.Indent++;
+                    const Right = this.Decompose(Node.right);
+                    this.Emit(`${Result} = ${Right}`);
+                    this.Indent--;
+                    this.Emit("end");
                 }
-                return result;
+                return Result;
             }
             case "UnaryExpression": {
-                const arg = this.decompose(node.argument);
-                // Ensures unary ops like # (length) are captured in a temp variable
-                value = node.operator === "#" ? `${node.operator}${arg}` : `${node.operator} ${arg}`;
+                const Arg = this.Decompose(Node.argument);
+                Value = Node.operator === "#" ? `${Node.operator}${Arg}` : `${Node.operator} ${Arg}`;
                 break;
             }
             case "MemberExpression": {
-                const base = this.decompose(node.base);
+                const Base = this.Decompose(Node.base);
 
-                // 1. Handle Colon (Methods) - Keep existing logic
-                if (node.indexer === ":") {
+                if (Node.indexer === ":") {
                     return {
-                        isColon: true,
-                        base: base,
-                        identifier: node.identifier.name
+                        IsColon: true,
+                        Base: Base,
+                        Identifier: Node.identifier.name
                     };
                 }
 
-                // 2. Handle Dot Indexer (The change)
-                if (node.indexer === ".") {
-                    // Create a temp variable for the property name string
-                    const propNameVar = this.generateTemp();
-                    this.emit(`${propNameVar} = "${node.identifier.name}"`);
-
-                    // Build the new access string: base[propNameVar]
-                    value = `${base}[${propNameVar}]`;
+                if (Node.indexer === ".") {
+                    const PropNameVar = this.GenerateTemp();
+                    this.Emit(`${PropNameVar} = "${Node.identifier.name}"`);
+                    Value = `${Base}[${PropNameVar}]`;
                 } else {
-                    // 3. Handle standard bracket indexer (e.g., base[key])
-                    // If it's already a bracket, just decompose the identifier/key
-                    const index = this.decompose(node.identifier);
-                    value = `${base}[${index}]`;
+                    const Index = this.Decompose(Node.identifier);
+                    Value = `${Base}[${Index}]`;
                 }
                 break;
             }
             case "CallExpression": {
-                const decomposedBase = this.decompose(node.base);
-                const args = (node.arguments || []).map(arg => this.decompose(arg));
+                const DecomposedBase = this.Decompose(Node.base);
+                const Args = (Node.arguments || []).map(Arg => this.Decompose(Arg));
 
-                if (decomposedBase.isColon) {
-                    // Reconstruct the valid Lua syntax: object:method(args)
-                    value = `${decomposedBase.base}:${decomposedBase.identifier}(${args.join(", ")})`;
+                if (DecomposedBase.IsColon) {
+                    Value = `${DecomposedBase.Base}:${DecomposedBase.Identifier}(${Args.join(", ")})`;
                 } else {
-                    value = `${decomposedBase}(${args.join(", ")})`;
+                    Value = `${DecomposedBase}(${Args.join(", ")})`;
                 }
                 break;
             }
             default:
-                // Fallback for anything not explicitly handled (e.g. TableConstructors)
-                value = A2C.Handle(node).trim();
+                Value = AstToCode.Handle(Node).trim();
         }
 
-        const v = this.generateTemp();
-        this.emit(`${v} = ${value}`);
-        return v;
+        const V = this.GenerateTemp();
+        this.Emit(`${V} = ${Value}`);
+        return V;
     }
 
-    handleStatement(node) {
-        if (!node) return;
+    HandleStatement(Node) {
+        if (!Node) return;
 
-        switch (node.type) {
+        switch (Node.type) {
             case "LocalStatement":
             case "AssignmentStatement": {
-                const isLocal = node.type === "LocalStatement" ? "local " : "";
-                const varNames = node.variables.map(v => A2C.Handle(v).trim());
+                const IsLocal = Node.type === "LocalStatement" ? "local " : "";
+                const VarNames = Node.variables.map(V => AstToCode.Handle(V).trim());
 
-                // 1. Separate the last expression from the rest
-                const lastExpr = node.init[node.init.length - 1];
-                const prefixExprs = node.init.slice(0, -1);
+                const LastExpr = Node.init[Node.init.length - 1];
+                const PrefixExprs = Node.init.slice(0, -1);
 
-                // 2. Decompose all expressions except the last one normally
-                const tempValues = prefixExprs.map(expr => this.decompose(expr));
+                const TempValues = PrefixExprs.map(Expr => this.Decompose(Expr));
 
-                // 3. Check if the last expression is a function call
-                if (lastExpr && lastExpr.type === "CallExpression") {
-                    // Handle prefix variables (1-to-1)
-                    for (let i = 0; i < tempValues.length; i++) {
-                        this.emit(`${isLocal}${varNames[i]} = ${tempValues[i]}`);
+                if (LastExpr && LastExpr.type === "CallExpression") {
+                    for (let I = 0; I < TempValues.length; I++) {
+                        this.Emit(`${IsLocal}${VarNames[I]} = ${TempValues[I]}`);
                     }
 
-                    // Handle the remaining variables and the "raw" call to allow expansion
-                    const remainingVars = varNames.slice(tempValues.length).join(", ");
+                    const RemainingVars = VarNames.slice(TempValues.length).join(", ");
 
-                    // Use a special helper to get the call string without wrapping it in a temp variable
-                    const callBase = this.decompose(lastExpr.base);
-                    const callArgs = (lastExpr.arguments || []).map(arg => this.decompose(arg));
-                    const callStr = lastExpr.base.indexer === ":" ?
-                        `${callBase.base}:${callBase.identifier}(${callArgs.join(", ")})` :
-                        `${callBase}(${callArgs.join(", ")})`;
+                    const CallBase = this.Decompose(LastExpr.base);
+                    const CallArgs = (LastExpr.arguments || []).map(Arg => this.Decompose(Arg));
+                    const CallStr = LastExpr.base.indexer === ":" ?
+                        `${CallBase.Base}:${CallBase.Identifier}(${CallArgs.join(", ")})` :
+                        `${CallBase}(${CallArgs.join(", ")})`;
 
-                    this.emit(`${isLocal}${remainingVars} = ${callStr}`);
+                    this.Emit(`${IsLocal}${RemainingVars} = ${CallStr}`);
                 } else {
-                    // Standard logic for non-call assignments
-                    const lastVal = this.decompose(lastExpr);
-                    tempValues.push(lastVal);
+                    const LastVal = this.Decompose(LastExpr);
+                    TempValues.push(LastVal);
 
-                    varNames.forEach((name, i) => {
-                        const val = tempValues[i] || "nil";
-                        this.emit(`${isLocal}${name} = ${val}`);
+                    VarNames.forEach((Name, I) => {
+                        const Val = TempValues[I] || "nil";
+                        this.Emit(`${IsLocal}${Name} = ${Val}`);
                     });
                 }
                 break;
             }
             case "IfStatement": {
-                node.clauses.forEach((clause, index) => {
-                    if (clause.condition) {
-                        const cond = this.decompose(clause.condition);
-                        this.emit(`${index === 0 ? "if" : "elseif"} ${cond} then`);
+                Node.clauses.forEach((Clause, Index) => {
+                    if (Clause.condition) {
+                        const Cond = this.Decompose(Clause.condition);
+                        this.Emit(`${Index === 0 ? "if" : "elseif"} ${Cond} then`);
                     } else {
-                        this.emit("else");
+                        this.Emit("else");
                     }
-                    this.indent++;
-                    (clause.body || []).forEach(n => this.handleStatement(n));
-                    this.indent--;
+                    this.Indent++;
+                    (Clause.body || []).forEach(N => this.HandleStatement(N));
+                    this.Indent--;
                 });
-                this.emit("end");
+                this.Emit("end");
                 break;
             }
             case "WhileStatement": {
-                const condVar = this.decompose(node.condition);
-                this.emit(`while ${condVar} do`);
-                this.indent++;
+                const CondVar = this.Decompose(Node.condition);
+                this.Emit(`while ${CondVar} do`);
+                this.Indent++;
 
-                (node.body || []).forEach(n => this.handleStatement(n));
+                (Node.body || []).forEach(N => this.HandleStatement(N));
 
-                const isLiteral = ["NumericLiteral", "StringLiteral", "BooleanLiteral", "NilLiteral"].includes(node.condition.type);
+                const IsLiteral = ["NumericLiteral", "StringLiteral", "BooleanLiteral", "NilLiteral"].includes(Node.condition.type);
 
-                if (!isLiteral) {
-                    const reEval = this.decompose(node.condition);
-                    if (condVar !== "true" && condVar !== "false" && condVar !== "nil") {
-                        this.emit(`${condVar} = ${reEval}`);
+                if (!IsLiteral) {
+                    const ReEval = this.Decompose(Node.condition);
+                    if (CondVar !== "true" && CondVar !== "false" && CondVar !== "nil") {
+                        this.Emit(`${CondVar} = ${ReEval}`);
                     }
                 }
 
-                this.indent--;
-                this.emit("end");
+                this.Indent--;
+                this.Emit("end");
                 break;
             }
             case "ForNumericStatement": {
-                const start = this.decompose(node.start);
-                const end = this.decompose(node.end);
-                const step = node.step ? `, ${this.decompose(node.step)}` : "";
-                this.emit(`for ${node.variable.name} = ${start}, ${end}${step} do`);
-                this.indent++;
-                (node.body || []).forEach(n => this.handleStatement(n));
-                this.indent--;
-                this.emit("end");
+                const Start = this.Decompose(Node.start);
+                const End = this.Decompose(Node.end);
+                const Step = Node.step ? `, ${this.Decompose(Node.step)}` : "";
+                this.Emit(`for ${Node.variable.name} = ${Start}, ${End}${Step} do`);
+                this.Indent++;
+                (Node.body || []).forEach(N => this.HandleStatement(N));
+                this.Indent--;
+                this.Emit("end");
                 break;
             }
             case "ForGenericStatement": {
-                const iterators = (node.iterators || []).map(it => {
-                    if (it.type === "CallExpression" || it.type === "MethodCallExpression") {
-                        const base = this.decompose(it.base || it.identifier);
-                        const args = (it.arguments || []).map(a => this.decompose(a));
-                        return `${base}(${args.join(", ")})`;
+                const Iterators = (Node.iterators || []).map(It => {
+                    if (It.type === "CallExpression" || It.type === "MethodCallExpression") {
+                        const Base = this.Decompose(It.base || It.identifier);
+                        const Args = (It.arguments || []).map(A => this.Decompose(A));
+                        return `${Base}(${Args.join(", ")})`;
                     }
-                    return this.decompose(it);
+                    return this.Decompose(It);
                 });
 
-                const names = node.variables.map(v => v.name).join(", ");
-                this.emit(`for ${names} in ${iterators.join(", ")} do`);
-                this.indent++;
-                (node.body || []).forEach(n => this.handleStatement(n));
-                this.indent--;
-                this.emit("end");
+                const Names = Node.variables.map(V => V.name).join(", ");
+                this.Emit(`for ${Names} in ${Iterators.join(", ")} do`);
+                this.Indent++;
+                (Node.body || []).forEach(N => this.HandleStatement(N));
+                this.Indent--;
+                this.Emit("end");
                 break;
             }
             case "ReturnStatement": {
-                const values = (node.arguments || []).map(arg => this.decompose(arg));
-                this.emit(`return ${values.join(", ")}`);
+                const Values = (Node.arguments || []).map(Arg => this.Decompose(Arg));
+                this.Emit(`return ${Values.join(", ")}`);
                 break;
             }
             case "CallStatement":
-                this.decompose(node.expression);
+                this.Decompose(Node.expression);
                 break;
             case "FunctionDeclaration": {
-                const name = A2C.Handle(node.identifier).trim();
+                const Name = AstToCode.Handle(Node.identifier).trim();
 
-                // Fix: Handle both regular names and VarargLiterals
-                const params = node.parameters.map(p => {
-                    if (p.type === "VarargLiteral") return "...";
-                    return p.name;
+                const Params = Node.parameters.map(P => {
+                    if (P.type === "VarargLiteral") return "...";
+                    return P.name;
                 }).join(", ");
 
-                this.emit(`${node.isLocal ? "local " : ""}function ${name}(${params})`);
-                this.indent++;
-                (node.body || []).forEach(n => this.handleStatement(n));
-                this.indent--;
-                this.emit("end");
+                this.Emit(`${Node.isLocal ? "local " : ""}function ${Name}(${Params})`);
+                this.Indent++;
+                (Node.body || []).forEach(N => this.HandleStatement(N));
+                this.Indent--;
+                this.Emit("end");
                 break;
             }
             default:
-                this.emit(A2C.Handle(node));
+                this.Emit(AstToCode.Handle(Node));
         }
     }
 
-    process() {
-        const body = Array.isArray(this.root) ? this.root : (this.root.body || [this.root]);
-        body.forEach(node => this.handleStatement(node));
-        return this.output.join("\n");
+    Process() {
+        const Body = Array.isArray(this.Root) ? this.Root : (this.Root.body || [this.Root]);
+        Body.forEach(Node => this.HandleStatement(Node));
+        return this.Output.join("\n");
     }
 }
 
@@ -283,42 +265,41 @@ function FindAllBodies(Ast) {
 }
 
 function DecomposeExpressions(Ast) {
-    const bodyPaths = FindAllBodies(Ast);
-    bodyPaths.sort((a, b) => b.length - a.length);
+    const BodyPaths = FindAllBodies(Ast);
+    BodyPaths.sort((A, B) => B.length - A.length);
 
-    for (const path of bodyPaths) {
-        const targetBlock = Utils.GetKey(Ast, path);
-        const decomposer = new ExpressionDecomposer(targetBlock);
-        const flattenedCode = decomposer.process();
+    for (const Path of BodyPaths) {
+        const TargetBlock = Utils.GetKey(Ast, Path);
+        const Decomposer = new ExpressionDecomposer(TargetBlock);
+        const FlattenedCode = Decomposer.Process();
 
         try {
-            const newNodes = Utils.Parse(flattenedCode);
+            const NewNodes = Utils.Parse(FlattenedCode);
             let Parent = Ast;
-            for (let i = 0; i < path.length - 1; i++) {
-                Parent = Parent[path[i]];
+            for (let I = 0; I < Path.length - 1; I++) {
+                Parent = Parent[Path[I]];
             }
-            Parent[path[path.length - 1]] = newNodes.body || newNodes;
-        } catch (e) {
+            Parent[Path[Path.length - 1]] = NewNodes.body || NewNodes;
+        } catch (E) {
             console.error("DECOMPOSITION ERROR in block:");
             console.error("--------------------------");
-            console.error(flattenedCode);
+            console.error(FlattenedCode);
             console.error("--------------------------");
-            throw e;
+            throw E;
         }
     }
 
-
-    const rootDecomposer = new ExpressionDecomposer(Ast);
-    const OutputCode = rootDecomposer.process();
+    const RootDecomposer = new ExpressionDecomposer(Ast);
+    const OutputCode = RootDecomposer.Process();
 
     try {
         return Utils.Parse(OutputCode);
-    } catch (e) {
+    } catch (E) {
         console.error("DECOMPOSITION ERROR in final root block:");
         console.error("--------------------------");
         console.error(OutputCode);
         console.error("--------------------------");
-        throw e;
+        throw E;
     }
 }
 
